@@ -110,7 +110,7 @@ function App() {
             ))}
           </div>
           {activeTab === 'instant' && <InstantStrategy sessionId={SESSION_ID} />}
-          {activeTab === 'custom' && <CustomStrategy sessionId={SESSION_ID} onSelectInstant={() => setActiveTab('instant')} />}
+          {activeTab === 'custom' && <CustomStrategy sessionId={SESSION_ID} />}
           {activeTab === 'function' && <FunctionStrategy sessionId={SESSION_ID} />}
         </div>
       </section>
@@ -318,7 +318,7 @@ footer{margin-top:28px;font-size:10px;color:#aaa;border-top:1px solid #eee;paddi
 }
 
 // ── Custom Strategy (simplified 4-step) ───────────────────
-function CustomStrategy({ sessionId, onSelectInstant }: { sessionId: string; onSelectInstant: () => void }) {
+function CustomStrategy({ sessionId }: { sessionId: string }) {
   const [step, setStep] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
