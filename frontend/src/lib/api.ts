@@ -12,6 +12,14 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return data as T
 }
 
+// ── PPTX API ───────────────────────────────────────────────
+export const pptxApi = {
+  generate: (payload: { company_name: string; industry?: string; type: string; strategy_text: string; strategy_id?: string }) =>
+    apiFetch<{ success: boolean; filename: string; base64: string; slides: number }>('/pptx/generate', {
+      method: 'POST', body: JSON.stringify(payload)
+    }),
+}
+
 // ── Strategy API ───────────────────────────────────────────
 export const strategyApi = {
   instant: (payload: { company_name: string; industry: string; company_size?: string; session_id?: string }) =>
