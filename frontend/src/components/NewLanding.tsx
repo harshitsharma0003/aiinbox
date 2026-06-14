@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { LANDING_HTML } from '../lib/landingHtml'
-import { strategyApi, contactApi, ariaApi, paymentApi, pptxApi } from '../lib/api'
+import { strategyApi, contactApi, ariaApi, paymentApi, pptxApi, pdfApi } from '../lib/api'
 
 // ── Constants ──────────────────────────────────────────────
 const SESSION_ID = 'sess_' + Math.random().toString(36).slice(2) + '_' + Date.now()
@@ -206,6 +206,25 @@ const FN_QS: Record<string, string[]> = {
 // ───────────────────────────────────────────────────────────
 export default function NewLanding() {
   const rootRef = useRef<HTMLDivElement>(null)
+
+  // ── Live-handler ref ─────────────────────────────
+  // The delegation effect captures handler refs at mount. But many handlers
+  // (processPayment, modalStep2, runInstant, etc.) are `useCallback` with
+  // changing deps — so they get a new identity on each re-render, while the
+  // delegation effect still holds the FIRST one (stale closure with empty modal).
+  // We solve this by routing every delegated call through this ref, which we
+  // update on every render. The delegated onClick reads `handlersRef.current`
+  // at click time → always gets the latest closures.
+  const handlersRef = useRef<{
+    processPayment?: () => void
+    modalStep2?: () => void
+    submitCF?: () => void
+    runInstant?: () => void
+    avSend?: () => void
+    avSendQ?: (q: string) => void
+    pickFn?: (fn: string) => void
+    bookWorkshop?: (id: string) => void
+  }>({})
   
 
   // Toast
@@ -361,7 +380,7 @@ export default function NewLanding() {
       }
       // runInstant()
       if (handler === 'runInstant()') {
-        runInstant()
+        handlersRef.current.runInstant?.()
         return
       }
       // showPkg(this,'xxx')
@@ -388,18 +407,18 @@ export default function NewLanding() {
       const fnMatch = handler.match(/^pickFn\(this,['"]([^'"]+)['"]\)$/)
       if (fnMatch) {
         const fn = fnMatch[1].replace('&amp;', '&')
-        pickFn(fn)
+        handlersRef.current.pickFn?.(fn)
         return
       }
       // bookWorkshop('x')
       const wsMatch = handler.match(/^bookWorkshop\(['"](\w+)['"]\)$/)
       if (wsMatch) {
-        bookWorkshop(wsMatch[1])
+        handlersRef.current.bookWorkshop?.(wsMatch[1])
         return
       }
       // submitCF()
       if (handler === 'submitCF()') {
-        submitCF()
+        handlersRef.current.submitCF?.()
         return
       }
       // toggleChat()
@@ -411,13 +430,13 @@ export default function NewLanding() {
       }
       // avSend()
       if (handler === 'avSend()') {
-        avSend()
+        handlersRef.current.avSend?.()
         return
       }
       // avSendQ('...')
       const qMatch = handler.match(/^avSendQ\(['"]([^'"]+)['"]\)$/)
       if (qMatch) {
-        avSendQ(qMatch[1])
+        handlersRef.current.avSendQ?.(qMatch[1])
         return
       }
       // toggleBill()
@@ -430,18 +449,21 @@ export default function NewLanding() {
       if (handler === 'closeModal()') {
         setModal(m => ({ ...m, open: false }))
         const m = document.getElementById('modal')
-        if (m) m.style.display = 'none'
+        if (m) {
+          m.style.display = 'none'
+          m.classList.remove('open')
+        }
         setModalStepState(1)
         return
       }
       // modalStep2()
       if (handler === 'modalStep2()') {
-        modalStep2()
+        handlersRef.current.modalStep2?.()
         return
       }
       // processPayment()
       if (handler === 'processPayment()') {
-        processPayment()
+        handlersRef.current.processPayment?.()
         return
       }
       // Generic eval-fallback for unknown handlers (no-op)
@@ -613,7 +635,7 @@ export default function NewLanding() {
     el.querySelectorAll('[data-act]').forEach(b => {
       b.addEventListener('click', () => {
         const act = b.getAttribute('data-act')
-        if (act === 'pdf') downloadPdf(co, ind, text)
+        if (act === 'pdf') downloadPdf(co, ind, 'instant', text, id)
         if (act === 'pptx') downloadPptxDirect(co, ind, 'instant', text, id)
         if (act === 'upgrade') {
           setTier('b')
@@ -706,13 +728,30 @@ export default function NewLanding() {
       if (!t) return
       const act = t.getAttribute('data-act')
       if (act === 'cb-next') {
-        // Validate current step
+        // Read FRESH values from the DOM (not from closure — closure may be stale)
         const required = cbStep === 0 ? CB_STEPS[0].fields!.map(f => f.id) : CB_STEPS[cbStep].qs!.map(q => q.id)
-        const missing = required.filter(id => !cbAns[id])
+        const liveAns: Record<string, string> = {}
+        let missing: string[] = []
+        required.forEach(id => {
+          const el = document.getElementById('cb-q-' + id) as HTMLInputElement | HTMLSelectElement | null
+          const v = el?.value?.trim() || ''
+          liveAns[id] = v
+          if (!v) missing.push(id)
+        })
         if (missing.length) {
           showToast('Please answer all questions', false)
+          // Highlight missing fields
+          missing.forEach(id => {
+            const el = document.getElementById('cb-q-' + id) as HTMLElement | null
+            if (el) {
+              el.style.borderColor = 'var(--rose)'
+              setTimeout(() => { el.style.borderColor = '' }, 2000)
+            }
+          })
           return
         }
+        // Persist live answers to React state for downstream use
+        setCbAns(prev => ({ ...prev, ...liveAns }))
         // Update step indicator
         for (let i = 0; i < 5; i++) {
           document.getElementById('cbs-' + i)?.classList.remove('active', 'done')
@@ -771,7 +810,7 @@ export default function NewLanding() {
     body.querySelectorAll('[data-act]').forEach(b => {
       b.addEventListener('click', () => {
         const act = b.getAttribute('data-act')
-        if (act === 'cb-pdf') downloadPdf(co, ind, cbResult)
+        if (act === 'cb-pdf') downloadPdf(co, ind, 'custom', cbResult, cbStrategyId || undefined)
         if (act === 'cb-pptx') downloadPptxDirect(co, ind, 'custom', cbResult, cbStrategyId || undefined)
       })
     })
@@ -865,7 +904,7 @@ export default function NewLanding() {
     qs.querySelectorAll('[data-act]').forEach(b => {
       b.addEventListener('click', () => {
         const act = b.getAttribute('data-act')
-        if (act === 'fn-pdf') downloadPdf(co, fn, fnResult)
+        if (act === 'fn-pdf') downloadPdf(co, fn, 'function', fnResult, fnStrategyId || undefined)
         if (act === 'fn-pptx') downloadPptxDirect(co, fn, 'function', fnResult, fnStrategyId || undefined)
       })
     })
@@ -961,7 +1000,12 @@ export default function NewLanding() {
     setModal({ open: true, ...opts })
     setModalStepState(1)
     const m = document.getElementById('modal')
-    if (m) m.style.display = 'flex'
+    if (m) {
+      m.style.display = 'flex'
+      // The CSS uses opacity/pointer-events keyed off the `.open` class;
+      // without it, the modal is rendered but invisible/non-interactive.
+      m.classList.add('open')
+    }
     const planNameEl = document.getElementById('ms-plan-name')
     const priceEl = document.getElementById('modal-price')
     const planNameEl2 = document.getElementById('ms-plan-name-2')
@@ -1144,60 +1188,30 @@ export default function NewLanding() {
     }
   }, [fnSelected, fnAnswers, showToast])
 
-  // ─── 13. PDF DOWNLOAD (CLIENT-SIDE PRINT-FRIENDLY HTML) ─
-  const downloadPdf = useCallback((co: string, ind: string, text: string) => {
-    const w = window.open('', '_blank')
-    if (!w) return
-    const dt = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase()
-    const secs = parseStrategySections(text)
-    const slides = secs.map(s =>
-      `<div class="page"><div class="ph"><div class="ph-l">AI<em>in</em>Box · ${co}</div><div class="ph-r">${dt}</div></div>
-        <div class="sl">${s.heading}</div>
-        <hr class="ar"/>
-        <div class="sb"><div class="sb-b">${s.body.replace(/</g,'&lt;').replace(/\n/g,'<br/>')}</div></div>
-        <footer><span>AI in a Box · Confidential</span><span>${co}</span></footer></div>`
-    ).join('')
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${co} — AI Strategy</title>
-      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet"/>
-      <style>
-        @page{size:A4;margin:0}*{box-sizing:border-box;margin:0;padding:0}
-        body{font-family:'DM Sans',sans-serif;color:#111;background:#fff;-webkit-print-color-adjust:exact}
-        .cover{background:#07090D;color:#F0F6FC;min-height:297mm;width:210mm;padding:52px;display:flex;flex-direction:column;justify-content:space-between;page-break-after:always;position:relative}
-        .cover-bg{position:absolute;inset:0;background-image:linear-gradient(rgba(33,38,45,.5) 1px,transparent 1px),linear-gradient(90deg,rgba(33,38,45,.5) 1px,transparent 1px);background-size:40px 40px;opacity:.6}
-        .cover-logo{font-family:'Cormorant Garamond';font-size:18px;font-weight:300;letter-spacing:.3em;position:relative;z-index:1;margin-bottom:60px}
-        .cover-logo span{color:#E6933A;font-style:italic}
-        .cover-label{font-family:'DM Mono';font-size:8px;letter-spacing:.2em;color:#6E7681;text-transform:uppercase;margin-bottom:16px;position:relative;z-index:1}
-        .cover-h1{font-family:'Cormorant Garamond';font-size:52px;font-weight:300;line-height:1;letter-spacing:-.02em;margin-bottom:16px;position:relative;z-index:1}
-        .cover-h1 em{color:#E6933A;font-style:italic}
-        .cover-sub{font-size:14px;color:#8B949E;line-height:1.75;font-weight:300;position:relative;z-index:1}
-        .cover-bot{display:flex;justify-content:space-between;border-top:1px solid #21262D;padding-top:16px;position:relative;z-index:1}
-        .cover-bot-l{font-family:'DM Mono';font-size:8px;letter-spacing:.08em;color:#6E7681}
-        .cover-conf{font-family:'DM Mono';font-size:8px;letter-spacing:.12em;color:rgba(230,147,58,.6);border:1px solid rgba(230,147,58,.2);padding:3px 8px;border-radius:2px}
-        .page{width:210mm;padding:44px 52px;min-height:297mm;page-break-after:always}
-        .page:last-child{page-break-after:auto}
-        .ph{display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:2px solid #111;margin-bottom:28px}
-        .ph-l{font-family:'DM Mono';font-size:9px;letter-spacing:.12em;color:#718096}
-        .ph-l em{color:#E6933A;font-style:italic;font-family:'Cormorant Garamond';font-size:11px}
-        .ph-r{font-family:'DM Mono';font-size:9px;letter-spacing:.1em;color:#999}
-        .sl{font-family:'DM Mono';font-size:8px;letter-spacing:.2em;color:#E6933A;text-transform:uppercase}
-        .ar{height:2px;background:linear-gradient(90deg,#E6933A,transparent);border:none;margin:16px 0}
-        .sb{padding:16px 0;border-bottom:1px solid #eee}
-        .sb-b{font-size:12px;color:#333;line-height:1.8;font-weight:300}
-        footer{margin-top:28px;font-family:'DM Mono';font-size:8px;letter-spacing:.06em;color:#bbb;border-top:1px solid #eee;padding-top:14px;display:flex;justify-content:space-between}
-      </style></head><body>
-      <div class="cover"><div class="cover-bg"></div>
-        <div><div class="cover-logo">AI<span>in</span>Box</div>
-          <div class="cover-label">AI Strategy Report · High-Level</div>
-          <div class="cover-h1">${co}<br/><em>strategy.</em></div>
-          <div class="cover-sub">${ind} · Generated ${dt}<br/>Powered by AI in a Box — multimodal AI cascade.</div>
-        </div>
-        <div class="cover-bot"><span class="cover-bot-l">AI IN A BOX · ${dt}</span><span class="cover-conf">CONFIDENTIAL</span></div>
-      </div>
-      ${slides}
-      </body></html>`)
-    w.document.close()
-    setTimeout(() => w.print(), 500)
-  }, [])
+  // ─── 13. PDF DOWNLOAD ────────────────────────────────
+  // Calls backend /api/pdf/generate to build a professional PDFKit document,
+  // then downloads it as a .pdf file. No in-browser preview — direct download only.
+  const downloadPdf = useCallback(async (co: string, ind: string, type: 'instant' | 'custom' | 'function', text: string, id?: string) => {
+    try {
+      showToast('Generating professional PDF…')
+      const res = await pdfApi.generate({ company_name: co, industry: ind, type, strategy_text: text, strategy_id: id })
+      const binary = atob(res.base64)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+      const blob = new Blob([bytes], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = res.filename || 'AI-Strategy-' + co + '.pdf'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      showToast('PDF downloaded!')
+    } catch (err: any) {
+      showToast('Could not generate PDF: ' + (err.message || 'unknown'), false)
+    }
+  }, [showToast])
 
   // ─── 14. PPTX DOWNLOAD ────────────────────────────────
   // Calls backend /api/pptx/generate to build a professional pptxgenjs deck,
@@ -1437,6 +1451,20 @@ export default function NewLanding() {
     setupScene()
     return () => { if (cleanup) cleanup() }
   }, [])
+
+  // ─── KEEP DELEGATED HANDLER REFS FRESH ───────────────────
+  // The delegation effect captures these once at mount. Without this sync,
+  // the modal "Pay" button would call a stale processPayment with empty
+  // `modal` state, and the /api/payments/create-order request would never fire
+  // (or fire with amount_inr=0 and silently fail).
+  handlersRef.current.processPayment = processPayment
+  handlersRef.current.modalStep2 = modalStep2
+  handlersRef.current.submitCF = submitCF
+  handlersRef.current.runInstant = runInstant
+  handlersRef.current.avSend = avSend
+  handlersRef.current.avSendQ = avSendQ
+  handlersRef.current.pickFn = pickFn
+  handlersRef.current.bookWorkshop = bookWorkshop
 
   // ─── 17. RENDER ───────────────────────────────────────
   return (

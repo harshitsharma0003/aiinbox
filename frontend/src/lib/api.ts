@@ -20,6 +20,14 @@ export const pptxApi = {
     }),
 }
 
+// ── PDF API ───────────────────────────────────────────────
+export const pdfApi = {
+  generate: (payload: { company_name: string; industry?: string; type: string; strategy_text: string; strategy_id?: string }) =>
+    apiFetch<{ success: boolean; filename: string; base64: string }>('/pdf/generate', {
+      method: 'POST', body: JSON.stringify(payload)
+    }),
+}
+
 // ── Strategy API ───────────────────────────────────────────
 export const strategyApi = {
   instant: (payload: { company_name: string; industry: string; company_size?: string; session_id?: string }) =>

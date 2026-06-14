@@ -10,6 +10,7 @@ const paymentsRouter = require('./routes/payments');
 const dashboardRouter = require('./routes/dashboard');
 const ariaRouter = require('./routes/aria');
 const pptxRouter = require('./routes/pptx');
+const pdfRouter = require('./routes/pdf');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -51,6 +52,7 @@ app.use('/api/payments', paymentsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/aria', ariaRouter);
 app.use('/api/pptx', pptxRouter);
+app.use('/api/pdf', pdfRouter);
 
 // ── Error handler ──────────────────────────────────────────
 app.use((err, req, res, next) => {
