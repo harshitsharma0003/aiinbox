@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { LANDING_HTML } from '../lib/landingHtml'
 import { strategyApi, contactApi, ariaApi, paymentApi, pptxApi } from '../lib/api'
-import SlideViewer from './SlideViewer'
 
 // ── Constants ──────────────────────────────────────────────
 const SESSION_ID = 'sess_' + Math.random().toString(36).slice(2) + '_' + Date.now()
@@ -53,14 +52,71 @@ function loadRazorpay(): Promise<boolean> {
 }
 
 // ── Strategy text parser (for inline rendering) ──
+// ── Strip markdown from text so professional output is clean ──
+function stripMd(s: string): string {
+  if (!s) return ''
+  return s
+    // Bold **text** or __text__ → text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    // Italic *text* or _text_ → text (single, not part of bold)
+    .replace(/(^|[^\*])\*([^\*\n]+?)\*(?!\*)/g, '$1$2')
+    .replace(/(^|[^_])_([^_\n]+?)_(?!_)/g, '$1$2')
+    // Inline code `text` → text
+    .replace(/`([^`]+)`/g, '$1')
+    // Headings  ###  → strip leading #
+    .replace(/^#{1,6}\s+/gm, '')
+    // Links [text](url) → text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .trim()
+}
+
+// ── Convert markdown table block into plain bullet rows ──
+function tablesToBullets(text: string): string {
+  // Detect a markdown table (lines starting with `|` and containing `|---|` separator)
+  const lines = text.split('\n')
+  const out: string[] = []
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    // Detect table start: pipe at start AND next line is a separator row
+    if (line.trim().startsWith('|') && i + 1 < lines.length && /^\s*\|[\s\-:|]+\|\s*$/.test(lines[i + 1])) {
+      // Parse header
+      const header = line.split('|').map(c => c.trim()).filter(Boolean)
+      i += 2 // skip separator
+      // Parse data rows
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        const cells = lines[i].split('|').map(c => c.trim()).filter(Boolean)
+        if (cells.length > 0) {
+          // First cell becomes the lead, rest become "Key: Value" inline
+          const parts: string[] = []
+          cells.forEach((c, idx) => {
+            const h = header[idx] || ''
+            if (h && cells[idx]) parts.push(`${h}: ${c}`)
+            else if (cells[idx]) parts.push(c)
+          })
+          out.push(parts.join(' · '))
+        }
+        i++
+      }
+    } else {
+      out.push(line)
+      i++
+    }
+  }
+  return out.join('\n')
+}
+
 function parseStrategySections(text: string) {
-  const secs = text.split(/\n(?=\d+\.\s+[A-Z])/)
+  // Pre-process: strip markdown noise and flatten tables
+  const cleaned = stripMd(tablesToBullets(text))
+  const secs = cleaned.split(/\n(?=\d+\.\s+[A-Z])/)
   return secs
     .map(sec => {
       const trimmed = sec.trim()
       if (!trimmed) return null
       const lines = trimmed.split('\n')
-      const heading = lines[0].replace(/^[\d.\s]+/, '').trim().substring(0, 80)
+      const heading = stripMd(lines[0]).replace(/^[\d.\s]+/, '').trim().substring(0, 80)
       const body = lines.slice(1).join('\n').trim() || trimmed
       return { heading: heading.toUpperCase(), body }
     })
@@ -222,8 +278,7 @@ export default function NewLanding() {
   const [coEm, setCoEm] = useState('')
   const [coCo, setCoCo] = useState('')
 
-  // SlideViewer
-  const [slideViewer, setSlideViewer] = useState<{ open: boolean; co: string; ind: string; text: string; type: 'instant' | 'custom' | 'function'; id?: string } | null>(null)
+  // (SlideViewer removed — in-browser preview was unreliable; users get the .pptx download instead)
 
   // ─── 1. INJECT MARKUP ON MOUNT ─────────────────────────
   useEffect(() => {
@@ -550,7 +605,6 @@ export default function NewLanding() {
       <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
         <button class="btn btn-a" data-act="pdf" style="flex:1;justify-content:center">📥 Download PDF</button>
         <button class="btn btn-w" data-act="pptx" style="flex:1;justify-content:center">📊 Download PPTX</button>
-        <button class="btn btn-o" data-act="preview" style="flex:1;justify-content:center">👁 Preview Slides</button>
         <button class="btn btn-o" data-act="upgrade" style="flex:1;justify-content:center">🎯 Get Custom Strategy ($2,500)</button>
       </div>`
     el.innerHTML = html
@@ -561,7 +615,6 @@ export default function NewLanding() {
         const act = b.getAttribute('data-act')
         if (act === 'pdf') downloadPdf(co, ind, text)
         if (act === 'pptx') downloadPptxDirect(co, ind, 'instant', text, id)
-        if (act === 'preview') setSlideViewer({ open: true, co, ind, text, type: 'instant', id })
         if (act === 'upgrade') {
           setTier('b')
           document.querySelectorAll('.tier-btn').forEach(t => t.classList.remove('on'))
@@ -684,8 +737,10 @@ export default function NewLanding() {
     }
     root.addEventListener('click', onClick)
     return () => { root.removeEventListener('click', onClick) }
+    // Intentionally do NOT include cbAns in deps — otherwise every keystroke
+    // re-renders the form and the input loses focus.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cbStep, cbAns, cbLoading, cbPaid, cbResult, cbError])
+  }, [cbStep, cbLoading, cbPaid, cbResult, cbError])
 
   // When Custom strategy is generated, render result inline
   useEffect(() => {
@@ -710,7 +765,6 @@ export default function NewLanding() {
       <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
         <button class="btn btn-a" data-act="cb-pdf" style="flex:1;justify-content:center">📥 Download PDF</button>
         <button class="btn btn-w" data-act="cb-pptx" style="flex:1;justify-content:center">📊 Download PPTX</button>
-        <button class="btn btn-o" data-act="cb-preview" style="flex:1;justify-content:center">👁 Preview Slides</button>
       </div>`
     body.innerHTML = html
 
@@ -719,7 +773,6 @@ export default function NewLanding() {
         const act = b.getAttribute('data-act')
         if (act === 'cb-pdf') downloadPdf(co, ind, cbResult)
         if (act === 'cb-pptx') downloadPptxDirect(co, ind, 'custom', cbResult, cbStrategyId || undefined)
-        if (act === 'cb-preview') setSlideViewer({ open: true, co, ind, text: cbResult, type: 'custom', id: cbStrategyId || undefined })
       })
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -807,7 +860,6 @@ export default function NewLanding() {
       <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
         <button class="btn btn-a" data-act="fn-pdf" style="flex:1;justify-content:center">📥 Download PDF</button>
         <button class="btn btn-w" data-act="fn-pptx" style="flex:1;justify-content:center">📊 Download PPTX</button>
-        <button class="btn btn-o" data-act="fn-preview" style="flex:1;justify-content:center">👁 Preview Slides</button>
       </div>`
     qs.innerHTML = html
     qs.querySelectorAll('[data-act]').forEach(b => {
@@ -815,7 +867,6 @@ export default function NewLanding() {
         const act = b.getAttribute('data-act')
         if (act === 'fn-pdf') downloadPdf(co, fn, fnResult)
         if (act === 'fn-pptx') downloadPptxDirect(co, fn, 'function', fnResult, fnStrategyId || undefined)
-        if (act === 'fn-preview') setSlideViewer({ open: true, co, ind: fn, text: fnResult, type: 'function', id: fnStrategyId || undefined })
       })
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -963,62 +1014,97 @@ export default function NewLanding() {
 
     const loaded = await loadRazorpay()
     if (!loaded) {
-      showToast('Could not load Razorpay', false)
+      showToast('Could not load Razorpay (check internet connection)', false)
       return
     }
+
     let rzpOrderId = ''
+    let dbOrderId = ''
+    let rzpKeyFromBackend = ''
     try {
       const ord = await paymentApi.createOrder({ plan_name: planLabel, amount_inr: amountInr, customer_name: name, customer_email: em, customer_company: co })
       rzpOrderId = ord.razorpay_order_id
-    } catch { /* proceed without server order */ }
+      dbOrderId = ord.order_id
+      rzpKeyFromBackend = ord.key_id || ''
+    } catch (err: any) {
+      // Backend order creation failed — log but proceed with client-side checkout
+      console.warn('[Razorpay] Backend order creation failed, proceeding without server order:', err.message)
+    }
 
-    const rzp = new (window as any).Razorpay({
-      key: RZP_KEY,
-      amount: amountInr * 100,
-      currency: 'INR',
-      name: 'AI in a Box',
-      description: planLabel,
-      order_id: rzpOrderId || undefined,
-      prefill: { name, email: em },
-      theme: { color: '#E6933A' },
-      handler: async (resp: any) => {
-        await sbTrack('payment_attempts', { razorpay_order_id: resp.razorpay_order_id || rzpOrderId, razorpay_payment_id: resp.razorpay_payment_id, status: 'paid', amount_inr: amountInr })
-        // Move to success
-        setModalStepState(3)
-        document.querySelectorAll('.m-step').forEach((s, i) => {
-          ;(s as HTMLElement).style.display = i === 2 ? 'block' : 'none'
-          s.classList.toggle('on', i === 2)
-        })
-        document.querySelectorAll('.modal-step-item').forEach((s, i) => {
-          s.classList.toggle('done', i < 2)
-          s.classList.toggle('active', i === 2)
-        })
-        showToast('Payment successful!')
-        // Trigger downstream action
-        setTimeout(() => {
-          if (purpose === 'custom') runCustomStrategy()
-          if (purpose === 'function') runFunctionStrategy()
-        }, 600)
-      },
-      modal: {
-        ondismiss: async () => {
-          await sbTrack('payment_attempts', { razorpay_order_id: rzpOrderId, status: 'cancelled', amount_inr: amountInr })
-          showToast('Payment cancelled', false)
+    // Resolve the key — backend takes priority over the build-time env
+    const finalKey = (rzpKeyFromBackend && rzpKeyFromBackend.startsWith('rzp_'))
+      ? rzpKeyFromBackend
+      : RZP_KEY
+    if (!finalKey || finalKey === 'rzp_test_placeholder' || !finalKey.startsWith('rzp_')) {
+      const msg = 'Razorpay key not configured. Either set RAZORPAY_KEY_ID in backend/.env (recommended) or VITE_RAZORPAY_KEY_ID in frontend/.env.'
+      console.error('[Razorpay]', msg, 'finalKey:', finalKey)
+      showToast(msg, false)
+      return
+    }
+
+    try {
+      const rzp = new (window as any).Razorpay({
+        key: finalKey,
+        amount: amountInr * 100,  // amount in paise
+        currency: 'INR',
+        name: 'AI in a Box',
+        description: planLabel,
+        order_id: rzpOrderId || undefined,
+        prefill: { name, email: em },
+        theme: { color: '#E6933A' },
+        handler: async (resp: any) => {
+          await sbTrack('payment_attempts', { razorpay_order_id: resp.razorpay_order_id || rzpOrderId, razorpay_payment_id: resp.razorpay_payment_id, status: 'paid', amount_inr: amountInr })
+          // Verify on backend if we have an order id
+          if (rzpOrderId && resp.razorpay_payment_id && resp.razorpay_signature) {
+            try {
+              await paymentApi.verify({
+                razorpay_order_id: resp.razorpay_order_id || rzpOrderId,
+                razorpay_payment_id: resp.razorpay_payment_id,
+                razorpay_signature: resp.razorpay_signature,
+                order_id: dbOrderId,
+              })
+            } catch (err: any) {
+              console.warn('[Razorpay] verify failed:', err.message)
+            }
+          }
+          setModalStepState(3)
+          document.querySelectorAll('.m-step').forEach((s, i) => {
+            ;(s as HTMLElement).style.display = i === 2 ? 'block' : 'none'
+            s.classList.toggle('on', i === 2)
+          })
+          document.querySelectorAll('.modal-step-item').forEach((s, i) => {
+            s.classList.toggle('done', i < 2)
+            s.classList.toggle('active', i === 2)
+          })
+          showToast('Payment successful!')
+          setTimeout(() => {
+            if (purpose === 'custom') runCustomStrategy()
+            if (purpose === 'function') runFunctionStrategy()
+          }, 600)
+        },
+        modal: {
+          ondismiss: async () => {
+            await sbTrack('payment_attempts', { razorpay_order_id: rzpOrderId, status: 'cancelled', amount_inr: amountInr })
+            showToast('Payment cancelled', false)
+          }
         }
-      }
-    })
-    rzp.on('payment.failed', async (resp: any) => {
-      await sbTrack('payment_attempts', {
-        razorpay_order_id: rzpOrderId,
-        razorpay_payment_id: resp.error?.metadata?.payment_id,
-        status: 'failed',
-        error_code: resp.error?.code,
-        error_description: resp.error?.description,
-        amount_inr: amountInr
       })
-      showToast('Payment failed: ' + (resp.error?.description || 'Unknown error'), false)
-    })
-    rzp.open()
+      rzp.on('payment.failed', async (resp: any) => {
+        await sbTrack('payment_attempts', {
+          razorpay_order_id: rzpOrderId,
+          razorpay_payment_id: resp.error?.metadata?.payment_id,
+          status: 'failed',
+          error_code: resp.error?.code,
+          error_description: resp.error?.description,
+          amount_inr: amountInr
+        })
+        showToast('Payment failed: ' + (resp.error?.description || 'Unknown error'), false)
+      })
+      rzp.open()
+    } catch (err: any) {
+      console.error('[Razorpay] open() failed:', err)
+      showToast('Could not open Razorpay: ' + (err.message || 'unknown'), false)
+    }
   }, [modal, showToast])
 
   // ─── 12. CUSTOM STRATEGY GENERATION (POST PAYMENT) ────
@@ -1368,37 +1454,6 @@ export default function NewLanding() {
           animation: 'fadeIn .2s'
         }}>
           {toast.msg}
-        </div>
-      )}
-
-      {/* SlideViewer (modal overlay) */}
-      {slideViewer?.open && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, zIndex: 9998,
-            background: 'rgba(7,9,13,.92)', backdropFilter: 'blur(8px)',
-            overflow: 'auto', padding: '32px'
-          }}
-          onClick={(e) => { if (e.target === e.currentTarget) setSlideViewer(null) }}
-        >
-          <button
-            onClick={() => setSlideViewer(null)}
-            style={{
-              position: 'fixed', top: 24, right: 28, zIndex: 9999,
-              background: 'var(--carbon)', border: '1px solid var(--lead)',
-              color: 'var(--paper)', width: 40, height: 40, borderRadius: 8,
-              fontSize: 22, cursor: 'pointer'
-            }}
-          >×</button>
-          <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-            <SlideViewer
-              company={slideViewer.co}
-              industry={slideViewer.ind}
-              text={slideViewer.text}
-              type={slideViewer.type}
-              strategyId={slideViewer.id}
-            />
-          </div>
         </div>
       )}
     </>

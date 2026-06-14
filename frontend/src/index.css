@@ -267,11 +267,18 @@ textarea.s-in{resize:vertical}
 .q-opt.sel .q-ltr{background:rgba(88,166,255,.25);color:var(--cyan)}
 .st-item{width:28px;height:28px;border-radius:50%;background:var(--lead);
   display:flex;align-items:center;justify-content:center;font-family:var(--mono);
-  font-size:10px;color:var(--zinc);transition:all .2s;flex-shrink:0}
+  font-size:10px;color:var(--zinc);transition:all .2s;flex-shrink:0;position:relative}
 .st-item.active{background:var(--amber);color:var(--ink)}
 .st-item.done{background:var(--jade);color:var(--ink)}
-.st-line{flex:1;height:1px;background:var(--lead);transition:background .2s}
+.st-item .st-n{font-family:var(--mono);font-size:11px;font-weight:600;line-height:1}
+.st-item .st-l{position:absolute;top:34px;left:50%;transform:translateX(-50%);
+  font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--zinc);
+  white-space:nowrap;text-transform:uppercase}
+.st-item.active .st-l{color:var(--amber)}
+.st-item.done .st-l{color:var(--jade)}
+.st-line{flex:1;height:1px;background:var(--lead);transition:background .2s;min-width:18px}
 .st-line.done{background:var(--jade)}
+.step-bar{display:flex;align-items:center;gap:6px;margin-bottom:48px;padding:0 4px}
 
 /* ── FUNCTION CARDS ────────────────────────────────── */
 .fn-card{background:var(--carbon);border:1px solid var(--lead);border-radius:8px;padding:22px;

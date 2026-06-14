@@ -34,17 +34,69 @@ const FONT_HEAD = 'Cambria';      // safe serif with personality
 const FONT_BODY = 'Calibri';      // safe modern sans
 const FONT_MONO = 'Consolas';     // for small labels
 
+// ── Strip markdown so PPTX output is clean professional text ──
+function stripMd(s) {
+  if (!s) return '';
+  return String(s)
+    // Bold **text** or __text__ → text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    // Italic *text* or _text_ → text
+    .replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1$2')
+    .replace(/(^|[^_])_([^_\n]+?)_(?!_)/g, '$1$2')
+    // Inline code
+    .replace(/`([^`]+)`/g, '$1')
+    // Headings #
+    .replace(/^#{1,6}\s+/gm, '')
+    // Links
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .trim();
+}
+
+// ── Convert markdown tables into clean inline "Key: Value · ..." strings ──
+function tablesToBullets(text) {
+  const lines = text.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim().startsWith('|') && i + 1 < lines.length && /^\s*\|[\s\-:|]+\|\s*$/.test(lines[i + 1])) {
+      const header = line.split('|').map(c => c.trim()).filter(Boolean);
+      i += 2;
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        const cells = lines[i].split('|').map(c => c.trim()).filter(Boolean);
+        if (cells.length > 0) {
+          const parts = [];
+          cells.forEach((c, idx) => {
+            const h = header[idx] || '';
+            if (h && cells[idx]) parts.push(h + ': ' + c);
+            else if (cells[idx]) parts.push(c);
+          });
+          out.push(parts.join(' · '));
+        }
+        i++;
+      }
+    } else {
+      out.push(line);
+      i++;
+    }
+  }
+  return out.join('\n');
+}
+
 // ── Parse Claude's text into sections ────────────────────
 function parseSections(text) {
-  const raw = text.split(/\n(?=[1-9]\.|#{1,3}\s)/).filter(s => s.trim());
+  const cleaned = stripMd(tablesToBullets(text));
+  const raw = cleaned.split(/\n(?=[1-9]\.|#{1,3}\s)/).filter(s => s.trim());
   return raw.map(sec => {
     const lines = sec.trim().split('\n');
-    const heading = lines[0].replace(/^[#\d.\s]+/, '').trim();
+    const heading = stripMd(lines[0]).replace(/^[#\d.\s]+/, '').trim();
     const body = lines.slice(1).join('\n').trim() || sec.trim();
     const bullets = body.split('\n')
       .map(l => l.trim())
       .filter(l => l.length > 0)
       .map(l => l.replace(/^[-–•·*]\s+/, '').trim())
+      .map(l => stripMd(l))
       .filter(l => l.length > 3);
     return { heading, body, bullets };
   });
