@@ -4,21 +4,24 @@ const { supabaseAdmin } = require('../supabase');
 
 const router = express.Router();
 
-// ── Color palette — matches the AI in a Box brand ────────
+// ── BRAND PALETTE ─────────────────────────────────────────
+// "Midnight Executive" with warm gold accent — for premium enterprise feel
 const C = {
-  ink:    '07090D',
-  onyx:   '0D1117',
-  carbon: '161B22',
-  lead:   '21262D',
-  zinc:   '6E7681',
-  silver: '8B949E',
-  paper:  'F0F6FC',
-  amber:  'E6933A',
-  cyan:   '58A6FF',
-  jade:   '3FB950',
-  rose:   'F85149',
-  violet: 'BC8CFF',
-  gold:   'E3B341',
+  ink:      '07090D',  // near-black background
+  onyx:     '0D1117',  // dark panel
+  carbon:   '161B22',  // card surface
+  lead:     '21262D',  // subtle border
+  zinc:     '6E7681',  // muted text
+  silver:   '8B949E',  // body text
+  paper:    'F0F6FC',  // primary text on dark
+  white:    'FFFFFF',
+  // accents
+  amber:    'E6933A',
+  cyan:     '58A6FF',
+  jade:     '3FB950',
+  rose:     'F85149',
+  violet:   'BC8CFF',
+  gold:     'C9963A',
 };
 
 const TYPE_COLOR = {
@@ -27,6 +30,10 @@ const TYPE_COLOR = {
   function: C.cyan,
 };
 
+const FONT_HEAD = 'Cambria';      // safe serif with personality
+const FONT_BODY = 'Calibri';      // safe modern sans
+const FONT_MONO = 'Consolas';     // for small labels
+
 // ── Parse Claude's text into sections ────────────────────
 function parseSections(text) {
   const raw = text.split(/\n(?=[1-9]\.|#{1,3}\s)/).filter(s => s.trim());
@@ -34,7 +41,6 @@ function parseSections(text) {
     const lines = sec.trim().split('\n');
     const heading = lines[0].replace(/^[#\d.\s]+/, '').trim();
     const body = lines.slice(1).join('\n').trim() || sec.trim();
-    // Extract bullet points
     const bullets = body.split('\n')
       .map(l => l.trim())
       .filter(l => l.length > 0)
@@ -44,471 +50,611 @@ function parseSections(text) {
   });
 }
 
-// ── Helper: truncate text ─────────────────────────────────
-function trunc(str, n) {
-  if (!str) return '';
-  return str.length > n ? str.slice(0, n - 1) + '…' : str;
+const trunc = (s, n) => !s ? '' : s.length > n ? s.slice(0, n - 1) + '…' : s;
+
+// ── Reusable: footer slip (clean, no decorative bar) ─────
+function addFooter(slide, { left = '', right = '', page = '' }) {
+  // No line — just text in muted color, plenty of margin
+  slide.addText(left, {
+    x: 0.5, y: 5.32, w: 4.5, h: 0.2,
+    fontSize: 8, color: C.zinc, fontFace: FONT_BODY,
+    charSpacing: 2, margin: 0
+  });
+  if (page) {
+    slide.addText(page, {
+      x: 4.5, y: 5.32, w: 1, h: 0.2,
+      fontSize: 8, color: C.zinc, fontFace: FONT_BODY,
+      align: 'center', margin: 0
+    });
+  }
+  slide.addText(right, {
+    x: 5.0, y: 5.32, w: 4.5, h: 0.2,
+    fontSize: 8, color: C.zinc, fontFace: FONT_BODY,
+    align: 'right', charSpacing: 2, margin: 0
+  });
 }
 
-// ── Slide builders ────────────────────────────────────────
+// ── Reusable: brand mark (top-left, no stripe) ───────────
+function addBrand(slide, color) {
+  slide.addText([
+    { text: 'AI',  options: { color: C.paper, bold: true, fontFace: FONT_HEAD } },
+    { text: 'in',  options: { color, italic: true, fontFace: FONT_HEAD } },
+    { text: 'Box', options: { color: C.silver, fontFace: FONT_HEAD } },
+  ], {
+    x: 0.5, y: 0.3, w: 3, h: 0.4,
+    fontSize: 16, margin: 0
+  });
+}
 
+// ═══════════════════════════════════════════════════════════
+//  COVER SLIDE — dark, dominant typography, no stripes
+// ═══════════════════════════════════════════════════════════
 function addCoverSlide(pres, { company, industry, type, date, accentColor }) {
   const slide = pres.addSlide();
   slide.background = { color: C.ink };
 
-  // Full-bleed left accent strip
-  slide.addShape(pres.shapes.RECTANGLE, {
-    x: 0, y: 0, w: 0.18, h: 5.625,
-    fill: { color: accentColor }, line: { color: accentColor }
+  // Top-right subtle confidentiality tag (no border bar)
+  slide.addText('CONFIDENTIAL', {
+    x: 7.5, y: 0.35, w: 2, h: 0.25,
+    fontSize: 8, color: accentColor, charSpacing: 4,
+    fontFace: FONT_BODY, align: 'right', margin: 0
   });
 
-  // Top-right badge
-  slide.addShape(pres.shapes.ROUNDED_RECTANGLE, {
-    x: 7.2, y: 0.3, w: 2.5, h: 0.45,
-    fill: { color: C.lead }, line: { color: C.lead }, rectRadius: 0.06
-  });
-  slide.addText('AI IN A BOX · CONFIDENTIAL', {
-    x: 7.2, y: 0.3, w: 2.5, h: 0.45,
-    fontSize: 7.5, color: C.zinc, align: 'center', valign: 'middle',
-    fontFace: 'Calibri', charSpacing: 2, margin: 0
-  });
+  // Brand mark
+  addBrand(slide, accentColor);
 
-  // Brand wordmark top-left
-  slide.addText([
-    { text: 'AI', options: { color: C.paper, bold: true } },
-    { text: 'in', options: { color: accentColor, italic: true } },
-    { text: 'Box', options: { color: C.silver } }
-  ], { x: 0.5, y: 0.3, w: 3, h: 0.5, fontSize: 20, fontFace: 'Georgia', margin: 0 });
+  // Decorative motif: small accent dot in upper area (replacing stripes)
+  slide.addShape(pres.shapes.OVAL, {
+    x: 0.5, y: 1.4, w: 0.18, h: 0.18,
+    fill: { color: accentColor }, line: { type: 'none' }
+  });
 
   // Strategy type label
   const typeLabel = type === 'instant' ? 'INSTANT AI STRATEGY'
     : type === 'custom' ? 'CUSTOM AI STRATEGY'
     : 'FUNCTION AI STRATEGY';
   slide.addText(typeLabel, {
-    x: 0.5, y: 1.5, w: 9, h: 0.35,
+    x: 0.84, y: 1.37, w: 6, h: 0.25,
     fontSize: 9, color: accentColor, charSpacing: 4,
-    fontFace: 'Calibri', margin: 0
+    fontFace: FONT_BODY, margin: 0
   });
 
-  // Company name — big
+  // Company name — dominant, takes the full deck visual weight
   slide.addText(trunc(company, 40), {
-    x: 0.5, y: 1.9, w: 9, h: 1.5,
-    fontSize: 44, color: C.paper, bold: true,
-    fontFace: 'Georgia', margin: 0,
-    shrinkText: true
+    x: 0.5, y: 1.8, w: 9, h: 1.5,
+    fontSize: 48, color: C.paper, bold: true,
+    fontFace: FONT_HEAD, margin: 0, shrinkText: true
   });
 
-  // Subtitle
+  // Italic subtitle
   slide.addText('AI Transformation Strategy', {
-    x: 0.5, y: 3.45, w: 9, h: 0.5,
-    fontSize: 20, color: C.silver, italic: true,
-    fontFace: 'Georgia', margin: 0
+    x: 0.5, y: 3.35, w: 9, h: 0.55,
+    fontSize: 22, color: C.silver, italic: true,
+    fontFace: FONT_HEAD, margin: 0
   });
 
-  // Metadata row — 4 pills
+  // Metadata in clean rows — NOT pill boxes
   const meta = [
-    { label: 'Industry', value: trunc(industry, 22) },
-    { label: 'Generated', value: date },
-    { label: 'Model', value: 'Claude Opus' },
-    { label: 'Powered by', value: 'AI in a Box' },
+    ['INDUSTRY',   trunc(industry, 30)],
+    ['PREPARED',   date],
+    ['MODEL',      'Claude Opus 4'],
+    ['CLASS',      type === 'instant' ? 'Public Data' : 'Proprietary'],
   ];
   meta.forEach((m, i) => {
-    const bx = 0.5 + i * 2.3;
-    slide.addShape(pres.shapes.RECTANGLE, {
-      x: bx, y: 4.25, w: 2.1, h: 0.85,
-      fill: { color: C.carbon }, line: { color: C.lead }
+    const by = 4.3 + Math.floor(i / 2) * 0.42;
+    const bx = 0.5 + (i % 2) * 4.5;
+    slide.addText(m[0], {
+      x: bx, y: by, w: 1.2, h: 0.22,
+      fontSize: 7.5, color: C.zinc, charSpacing: 3,
+      fontFace: FONT_BODY, margin: 0
     });
-    slide.addText(m.label.toUpperCase(), {
-      x: bx, y: 4.3, w: 2.1, h: 0.25,
-      fontSize: 7, color: C.zinc, align: 'center', charSpacing: 2,
-      fontFace: 'Calibri', margin: 0
-    });
-    slide.addText(m.value, {
-      x: bx, y: 4.55, w: 2.1, h: 0.4,
-      fontSize: 10, color: C.paper, align: 'center', bold: true,
-      fontFace: 'Calibri', margin: 0, shrinkText: true
+    slide.addText(m[1], {
+      x: bx + 1.3, y: by, w: 3, h: 0.22,
+      fontSize: 11, color: C.paper, bold: true,
+      fontFace: FONT_BODY, margin: 0, shrinkText: true
     });
   });
 
-  // Bottom line
-  slide.addShape(pres.shapes.LINE, {
-    x: 0.5, y: 5.3, w: 9, h: 0,
-    line: { color: C.lead, width: 0.5 }
-  });
-  slide.addText('hello@aiinbox.com  ·  aiinbox.com  ·  © 2026 AI in a Box', {
-    x: 0.5, y: 5.35, w: 9, h: 0.22,
-    fontSize: 8, color: C.zinc, align: 'center', fontFace: 'Calibri', margin: 0
-  });
+  // Footer (no line)
+  addFooter(slide, { left: 'hello@aiinbox.com', right: 'aiinbox.com' });
 }
 
-function addAgendaSlide(pres, { sections, accentColor }) {
+// ═══════════════════════════════════════════════════════════
+//  STATS SLIDE — large stat callouts, varied 2x2 grid
+// ═══════════════════════════════════════════════════════════
+function addStatSlide(pres, { accentColor }) {
   const slide = pres.addSlide();
   slide.background = { color: C.onyx };
 
-  // Left strip
-  slide.addShape(pres.shapes.RECTANGLE, {
-    x: 0, y: 0, w: 0.18, h: 5.625,
-    fill: { color: accentColor }, line: { color: accentColor }
-  });
-
-  slide.addText('AGENDA', {
-    x: 0.5, y: 0.3, w: 9, h: 0.3,
-    fontSize: 9, color: accentColor, charSpacing: 4, fontFace: 'Calibri', margin: 0
-  });
-  slide.addText('What we cover in this strategy', {
-    x: 0.5, y: 0.62, w: 9, h: 0.55,
-    fontSize: 28, color: C.paper, fontFace: 'Georgia', italic: true, margin: 0
-  });
-
-  // 2-column agenda grid
-  const cols = [sections.slice(0, Math.ceil(sections.length / 2)), sections.slice(Math.ceil(sections.length / 2))];
-  cols.forEach((col, ci) => {
-    col.forEach((sec, ri) => {
-      const bx = 0.5 + ci * 4.8;
-      const by = 1.45 + ri * 0.78;
-      slide.addShape(pres.shapes.RECTANGLE, {
-        x: bx, y: by, w: 4.5, h: 0.65,
-        fill: { color: C.carbon }, line: { color: C.lead }
-      });
-      // Number circle
-      slide.addShape(pres.shapes.OVAL, {
-        x: bx + 0.1, y: by + 0.1, w: 0.42, h: 0.42,
-        fill: { color: accentColor }, line: { color: accentColor }
-      });
-      const globalIdx = ci === 0 ? ri + 1 : Math.ceil(sections.length / 2) + ri + 1;
-      slide.addText(String(globalIdx), {
-        x: bx + 0.1, y: by + 0.1, w: 0.42, h: 0.42,
-        fontSize: 10, color: C.ink, bold: true, align: 'center', valign: 'middle',
-        fontFace: 'Calibri', margin: 0
-      });
-      slide.addText(trunc(sec.heading, 45), {
-        x: bx + 0.65, y: by + 0.08, w: 3.7, h: 0.5,
-        fontSize: 11, color: C.paper, fontFace: 'Calibri', valign: 'middle',
-        margin: 0, shrinkText: true
-      });
-    });
-  });
-}
-
-function addSectionSlide(pres, { index, heading, bullets, accentColor, totalSections }) {
-  const slide = pres.addSlide();
-  slide.background = { color: C.ink };
-
-  // Left strip
-  slide.addShape(pres.shapes.RECTANGLE, {
-    x: 0, y: 0, w: 0.18, h: 5.625,
-    fill: { color: accentColor }, line: { color: accentColor }
-  });
-
-  // Section number — large background
-  slide.addText(String(index).padStart(2, '0'), {
-    x: 7.8, y: 0.15, w: 2, h: 1.4,
-    fontSize: 80, color: C.lead, bold: true, align: 'right',
-    fontFace: 'Georgia', margin: 0
-  });
-
-  // Heading
-  slide.addText(trunc(heading, 60), {
-    x: 0.5, y: 0.3, w: 7, h: 1.0,
-    fontSize: 28, color: C.paper, bold: true, fontFace: 'Georgia',
-    margin: 0, shrinkText: true
-  });
-
-  // Accent underline
-  slide.addShape(pres.shapes.RECTANGLE, {
-    x: 0.5, y: 1.35, w: 1.4, h: 0.05,
-    fill: { color: accentColor }, line: { color: accentColor }
-  });
-
-  // Content area — smart layout based on bullet count
-  const usableBullets = bullets.slice(0, 8);
-  const halfLen = Math.ceil(usableBullets.length / 2);
-  const left = usableBullets.slice(0, halfLen);
-  const right = usableBullets.slice(halfLen);
-
-  const renderBulletCol = (items, bx, by, bw) => {
-    if (items.length === 0) return;
-    const bulletItems = items.map((b, i) => {
-      return [
-        {
-          text: trunc(b, 90),
-          options: {
-            bullet: false, breakLine: i < items.length - 1,
-            color: C.silver, fontSize: 12, fontFace: 'Calibri'
-          }
-        }
-      ];
-    }).flat();
-
-    // Bullet dots as shapes
-    items.forEach((_, i) => {
-      slide.addShape(pres.shapes.OVAL, {
-        x: bx, y: by + i * 0.55 + 0.06,
-        w: 0.1, h: 0.1,
-        fill: { color: accentColor }, line: { color: accentColor }
-      });
-    });
-
-    items.forEach((b, i) => {
-      slide.addText(trunc(b, 95), {
-        x: bx + 0.18, y: by + i * 0.55,
-        w: bw - 0.18, h: 0.48,
-        fontSize: 11.5, color: C.silver, fontFace: 'Calibri',
-        valign: 'middle', margin: 0, shrinkText: true
-      });
-    });
-  };
-
-  if (right.length === 0) {
-    // Single column
-    renderBulletCol(left, 0.5, 1.55, 9.0);
-  } else {
-    // Two columns
-    renderBulletCol(left, 0.5, 1.55, 4.5);
-    // Divider
-    slide.addShape(pres.shapes.LINE, {
-      x: 5.1, y: 1.55, w: 0, h: 3.6,
-      line: { color: C.lead, width: 0.5 }
-    });
-    renderBulletCol(right, 5.3, 1.55, 4.2);
-  }
-
-  // Footer
-  slide.addShape(pres.shapes.LINE, {
-    x: 0.5, y: 5.25, w: 9, h: 0,
-    line: { color: C.lead, width: 0.5 }
-  });
-  slide.addText(`AI in a Box  ·  ${heading.toUpperCase().slice(0, 40)}  ·  ${index} / ${totalSections}`, {
-    x: 0.5, y: 5.3, w: 9, h: 0.22,
-    fontSize: 7.5, color: C.zinc, align: 'center', fontFace: 'Calibri', margin: 0
-  });
-}
-
-function addStatSlide(pres, { company, industry, accentColor }) {
-  const slide = pres.addSlide();
-  slide.background = { color: C.onyx };
-
-  slide.addShape(pres.shapes.RECTANGLE, {
-    x: 0, y: 0, w: 0.18, h: 5.625,
-    fill: { color: accentColor }, line: { color: accentColor }
-  });
+  addBrand(slide, accentColor);
 
   slide.addText('WHY AI. WHY NOW.', {
-    x: 0.5, y: 0.3, w: 9, h: 0.3,
-    fontSize: 9, color: accentColor, charSpacing: 4, fontFace: 'Calibri', margin: 0
+    x: 0.5, y: 1.4, w: 9, h: 0.25,
+    fontSize: 9, color: accentColor, charSpacing: 4,
+    fontFace: FONT_BODY, margin: 0
   });
-  slide.addText('The AI opportunity in numbers', {
-    x: 0.5, y: 0.62, w: 9, h: 0.55,
-    fontSize: 28, color: C.paper, fontFace: 'Georgia', italic: true, margin: 0
+  slide.addText('The opportunity, by the numbers.', {
+    x: 0.5, y: 1.75, w: 9, h: 0.6,
+    fontSize: 26, color: C.paper, italic: true,
+    fontFace: FONT_HEAD, margin: 0
   });
 
+  // 2x2 stat grid — NO stripes, just subtle card surfaces
   const stats = [
-    { n: '$72.8B', l: 'AI consulting market by 2030', c: C.amber },
-    { n: '31.6%', l: 'Annual growth rate (CAGR)', c: C.cyan },
-    { n: '86%', l: 'Buyers now seek AI-enabled firms', c: C.jade },
-    { n: '95%', l: 'AI pilots fail without proper strategy', c: C.rose },
+    { n: '$72.8B', l: 'AI consulting market\nby 2030',                color: C.amber  },
+    { n: '31.6%',  l: 'Annual market growth\n(CAGR through 2030)',     color: C.cyan   },
+    { n: '86%',    l: 'Of buyers now seek\nAI-enabled firms',          color: C.jade   },
+    { n: '95%',    l: 'Of AI pilots fail\nwithout proper strategy',    color: C.violet },
   ];
-
   stats.forEach((s, i) => {
-    const bx = 0.5 + (i % 2) * 4.8;
-    const by = 1.45 + Math.floor(i / 2) * 1.75;
-
+    const bx = 0.6 + (i % 2) * 4.5;
+    const by = 2.65 + Math.floor(i / 2) * 1.35;
+    // Subtle card — no stripe, just background tint with border
     slide.addShape(pres.shapes.RECTANGLE, {
-      x: bx, y: by, w: 4.5, h: 1.55,
-      fill: { color: C.carbon }, line: { color: C.lead }
+      x: bx, y: by, w: 4.2, h: 1.15,
+      fill: { color: C.carbon }, line: { color: C.lead, width: 0.5 }
     });
-    slide.addShape(pres.shapes.RECTANGLE, {
-      x: bx, y: by, w: 0.08, h: 1.55,
-      fill: { color: s.c }, line: { color: s.c }
-    });
+    // Number (huge)
     slide.addText(s.n, {
-      x: bx + 0.2, y: by + 0.12, w: 4.1, h: 0.75,
-      fontSize: 38, color: s.c, bold: true, fontFace: 'Georgia',
-      margin: 0
+      x: bx + 0.2, y: by + 0.12, w: 1.9, h: 0.85,
+      fontSize: 38, bold: true, color: s.color,
+      fontFace: FONT_HEAD, valign: 'middle', margin: 0
     });
+    // Label
     slide.addText(s.l, {
-      x: bx + 0.2, y: by + 0.9, w: 4.1, h: 0.5,
-      fontSize: 11, color: C.silver, fontFace: 'Calibri', margin: 0
+      x: bx + 2.2, y: by + 0.15, w: 1.9, h: 0.85,
+      fontSize: 10, color: C.silver, fontFace: FONT_BODY,
+      valign: 'middle', margin: 0
     });
   });
+
+  // Source attribution
+  slide.addText('Sources: Gartner · McKinsey Global Survey · IBM Institute for Business Value · 2025-26.', {
+    x: 0.5, y: 5.05, w: 9, h: 0.25,
+    fontSize: 8, color: C.zinc, italic: true,
+    fontFace: FONT_BODY, margin: 0
+  });
+
+  addFooter(slide, { left: 'AI in a Box · Confidential', right: 'Market Context' });
 }
 
-function addRoadmapSlide(pres, { accentColor }) {
+// ═══════════════════════════════════════════════════════════
+//  AGENDA SLIDE — typographic grid, no boxes
+// ═══════════════════════════════════════════════════════════
+function addAgendaSlide(pres, { sections, accentColor }) {
   const slide = pres.addSlide();
   slide.background = { color: C.ink };
 
-  slide.addShape(pres.shapes.RECTANGLE, {
-    x: 0, y: 0, w: 0.18, h: 5.625,
-    fill: { color: accentColor }, line: { color: accentColor }
+  addBrand(slide, accentColor);
+
+  slide.addText('CONTENTS', {
+    x: 0.5, y: 1.4, w: 9, h: 0.25,
+    fontSize: 9, color: accentColor, charSpacing: 4,
+    fontFace: FONT_BODY, margin: 0
+  });
+  slide.addText('What we cover.', {
+    x: 0.5, y: 1.75, w: 9, h: 0.6,
+    fontSize: 26, color: C.paper, italic: true,
+    fontFace: FONT_HEAD, margin: 0
   });
 
-  slide.addText('18-MONTH ROADMAP', {
-    x: 0.5, y: 0.3, w: 9, h: 0.3,
-    fontSize: 9, color: accentColor, charSpacing: 4, fontFace: 'Calibri', margin: 0
+  // Single-column typographic agenda — no boxes, just hierarchy
+  const items = sections.slice(0, 8);
+  items.forEach((sec, i) => {
+    const by = 2.85 + i * 0.32;
+    // Number — light gray, smaller
+    slide.addText(String(i + 1).padStart(2, '0'), {
+      x: 0.5, y: by, w: 0.5, h: 0.28,
+      fontSize: 11, color: C.zinc, fontFace: FONT_BODY,
+      margin: 0
+    });
+    // Section title
+    slide.addText(trunc(sec.heading, 75), {
+      x: 1.0, y: by, w: 7.5, h: 0.28,
+      fontSize: 13, color: C.paper, fontFace: FONT_HEAD,
+      margin: 0, valign: 'middle'
+    });
+    // Right-aligned page indicator
+    slide.addText('p. ' + (i + 4), {
+      x: 8.6, y: by, w: 0.9, h: 0.28,
+      fontSize: 9, color: C.zinc, fontFace: FONT_BODY,
+      align: 'right', margin: 0, valign: 'middle'
+    });
+    // Subtle separator dots (low opacity feel via color)
+    if (i < items.length - 1) {
+      slide.addShape(pres.shapes.LINE, {
+        x: 0.5, y: by + 0.3, w: 9, h: 0,
+        line: { color: C.lead, width: 0.5, dashType: 'dash' }
+      });
+    }
   });
-  slide.addText('Your AI transformation journey', {
-    x: 0.5, y: 0.62, w: 9, h: 0.55,
-    fontSize: 28, color: C.paper, fontFace: 'Georgia', italic: true, margin: 0
+
+  addFooter(slide, { left: 'AI in a Box · Confidential', right: 'Contents' });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SECTION SLIDE — varied layout: 1-col, 2-col, or featured-quote
+// ═══════════════════════════════════════════════════════════
+function addSectionSlide(pres, { index, heading, bullets, accentColor, totalSections, variant }) {
+  const slide = pres.addSlide();
+  slide.background = { color: index % 2 === 0 ? C.ink : C.onyx };
+
+  addBrand(slide, accentColor);
+
+  // Section number — large, low-contrast, decorative (not a stripe)
+  slide.addText(String(index).padStart(2, '0'), {
+    x: 8.0, y: 0.25, w: 1.5, h: 1.0,
+    fontSize: 64, color: C.lead, bold: true,
+    fontFace: FONT_HEAD, align: 'right', margin: 0
+  });
+
+  // Eyebrow label
+  slide.addText('SECTION ' + index + ' / ' + totalSections, {
+    x: 0.5, y: 1.4, w: 6, h: 0.25,
+    fontSize: 9, color: accentColor, charSpacing: 4,
+    fontFace: FONT_BODY, margin: 0
+  });
+
+  // Heading — large serif
+  slide.addText(trunc(heading, 80), {
+    x: 0.5, y: 1.7, w: 8.8, h: 1.0,
+    fontSize: 30, color: C.paper, bold: true,
+    fontFace: FONT_HEAD, margin: 0, shrinkText: true
+  });
+
+  // Content area
+  const usable = bullets.slice(0, 8);
+
+  if (variant === 'callout' && usable.length >= 1) {
+    // Featured callout layout — first bullet is a hero quote, rest below
+    const hero = usable[0];
+    const rest = usable.slice(1);
+
+    // Hero quote — large italic serif
+    slide.addText('"' + trunc(hero, 200) + '"', {
+      x: 0.5, y: 2.85, w: 9, h: 1.1,
+      fontSize: 18, color: accentColor, italic: true,
+      fontFace: FONT_HEAD, margin: 0, shrinkText: true
+    });
+
+    // Rest as 2-column compact list
+    const half = Math.ceil(rest.length / 2);
+    const left = rest.slice(0, half);
+    const right = rest.slice(half);
+
+    [left, right].forEach((col, ci) => {
+      const bx = 0.5 + ci * 4.5;
+      col.forEach((b, i) => {
+        const by = 4.1 + i * 0.32;
+        slide.addShape(pres.shapes.OVAL, {
+          x: bx, y: by + 0.06, w: 0.08, h: 0.08,
+          fill: { color: accentColor }, line: { type: 'none' }
+        });
+        slide.addText(trunc(b, 75), {
+          x: bx + 0.2, y: by, w: 4, h: 0.28,
+          fontSize: 10, color: C.silver,
+          fontFace: FONT_BODY, valign: 'middle', margin: 0
+        });
+      });
+    });
+  } else if (variant === 'twocol' || usable.length >= 5) {
+    // 2-column bulleted layout
+    const half = Math.ceil(usable.length / 2);
+    const left = usable.slice(0, half);
+    const right = usable.slice(half);
+
+    [left, right].forEach((col, ci) => {
+      const bx = 0.5 + ci * 4.5;
+      col.forEach((b, i) => {
+        const by = 2.9 + i * 0.46;
+        slide.addShape(pres.shapes.OVAL, {
+          x: bx, y: by + 0.07, w: 0.1, h: 0.1,
+          fill: { color: accentColor }, line: { type: 'none' }
+        });
+        slide.addText(trunc(b, 95), {
+          x: bx + 0.22, y: by, w: 4.2, h: 0.42,
+          fontSize: 11, color: C.silver,
+          fontFace: FONT_BODY, valign: 'top', margin: 0
+        });
+      });
+    });
+  } else {
+    // Single-column for short lists — bigger text
+    usable.forEach((b, i) => {
+      const by = 2.9 + i * 0.5;
+      slide.addShape(pres.shapes.OVAL, {
+        x: 0.5, y: by + 0.08, w: 0.12, h: 0.12,
+        fill: { color: accentColor }, line: { type: 'none' }
+      });
+      slide.addText(trunc(b, 180), {
+        x: 0.8, y: by, w: 8.6, h: 0.46,
+        fontSize: 13, color: C.paper,
+        fontFace: FONT_BODY, valign: 'top', margin: 0
+      });
+    });
+  }
+
+  addFooter(slide, {
+    left: 'AI in a Box · Confidential',
+    right: trunc(heading, 40),
+    page: index + ' / ' + totalSections
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ROADMAP SLIDE — horizontal timeline (clean, no stripes)
+// ═══════════════════════════════════════════════════════════
+function addRoadmapSlide(pres, { accentColor }) {
+  const slide = pres.addSlide();
+  slide.background = { color: C.onyx };
+
+  addBrand(slide, accentColor);
+
+  slide.addText('ROADMAP', {
+    x: 0.5, y: 1.4, w: 9, h: 0.25,
+    fontSize: 9, color: accentColor, charSpacing: 4,
+    fontFace: FONT_BODY, margin: 0
+  });
+  slide.addText('Eighteen months to AI fluency.', {
+    x: 0.5, y: 1.75, w: 9, h: 0.6,
+    fontSize: 26, color: C.paper, italic: true,
+    fontFace: FONT_HEAD, margin: 0
   });
 
   const phases = [
-    { title: 'PHASE 1', sub: 'Quick Wins', range: '0 – 6 months', color: C.jade,
-      items: ['AI tool audit & baseline assessment', 'Pilot 1–2 high-impact use cases', 'Data quality foundation', 'Team AI literacy programme'] },
-    { title: 'PHASE 2', sub: 'Core Build', range: '6 – 12 months', color: C.amber,
-      items: ['Scale successful pilots to production', 'Build internal AI competency centre', 'Integrate AI into core processes', 'Measure and report ROI to board'] },
-    { title: 'PHASE 3', sub: 'Scale & Lead', range: '12 – 18 months', color: C.cyan,
-      items: ['Enterprise-wide AI deployment', 'AI-native product/service development', 'Competitive AI advantage established', 'Continuous improvement engine live'] },
+    { phase: 'PHASE 01', dur: 'Months 1-3',  title: 'Foundation',   color: C.amber,  items: ['Data audit', 'Quick wins', 'Team setup'] },
+    { phase: 'PHASE 02', dur: 'Months 4-9',  title: 'Acceleration', color: C.cyan,   items: ['Production AI', 'Process redesign', 'Skill build'] },
+    { phase: 'PHASE 03', dur: 'Months 10-18',title: 'Scale',        color: C.jade,   items: ['Enterprise rollout', 'AI-native ops', 'Continuous gains'] },
   ];
 
-  // Timeline arrow
+  // Timeline backbone — a single dashed line connecting all 3
   slide.addShape(pres.shapes.LINE, {
-    x: 0.5, y: 2.0, w: 9.1, h: 0,
-    line: { color: C.lead, width: 1.5 }
+    x: 1.2, y: 3.05, w: 7.6, h: 0,
+    line: { color: C.lead, width: 1 }
   });
 
   phases.forEach((p, i) => {
-    const bx = 0.5 + i * 3.15;
-
-    // Phase node on timeline
+    const bx = 0.6 + i * 3.13;
+    // Node
     slide.addShape(pres.shapes.OVAL, {
-      x: bx + 1.3, y: 1.78, w: 0.44, h: 0.44,
+      x: bx + 1.35, y: 2.93, w: 0.24, h: 0.24,
       fill: { color: p.color }, line: { color: p.color }
     });
-
-    // Phase card
-    slide.addShape(pres.shapes.RECTANGLE, {
-      x: bx, y: 2.3, w: 2.9, h: 2.9,
-      fill: { color: C.carbon }, line: { color: C.lead }
+    // Phase label
+    slide.addText(p.phase, {
+      x: bx, y: 2.55, w: 2.9, h: 0.25,
+      fontSize: 8, color: p.color, charSpacing: 3,
+      fontFace: FONT_BODY, align: 'center', margin: 0
     });
-    slide.addShape(pres.shapes.RECTANGLE, {
-      x: bx, y: 2.3, w: 2.9, h: 0.06,
-      fill: { color: p.color }, line: { color: p.color }
+    // Duration
+    slide.addText(p.dur, {
+      x: bx, y: 3.32, w: 2.9, h: 0.22,
+      fontSize: 9, color: C.zinc,
+      fontFace: FONT_BODY, align: 'center', margin: 0
     });
-
+    // Title
     slide.addText(p.title, {
-      x: bx + 0.12, y: 2.38, w: 2.6, h: 0.3,
-      fontSize: 8, color: p.color, charSpacing: 3, fontFace: 'Calibri', margin: 0
+      x: bx, y: 3.6, w: 2.9, h: 0.4,
+      fontSize: 17, color: C.paper, bold: true,
+      fontFace: FONT_HEAD, align: 'center', margin: 0
     });
-    slide.addText(p.sub, {
-      x: bx + 0.12, y: 2.65, w: 2.6, h: 0.4,
-      fontSize: 16, color: C.paper, bold: true, fontFace: 'Georgia', margin: 0
-    });
-    slide.addText(p.range, {
-      x: bx + 0.12, y: 3.0, w: 2.6, h: 0.28,
-      fontSize: 9, color: p.color, fontFace: 'Calibri', margin: 0
-    });
-
+    // Items
     p.items.forEach((item, j) => {
-      slide.addShape(pres.shapes.OVAL, {
-        x: bx + 0.12, y: 3.38 + j * 0.37 + 0.08,
-        w: 0.08, h: 0.08,
-        fill: { color: p.color }, line: { color: p.color }
-      });
-      slide.addText(trunc(item, 38), {
-        x: bx + 0.28, y: 3.38 + j * 0.37,
-        w: 2.5, h: 0.32,
-        fontSize: 9.5, color: C.silver, fontFace: 'Calibri',
-        valign: 'middle', margin: 0
+      slide.addText('— ' + item, {
+        x: bx, y: 4.1 + j * 0.27, w: 2.9, h: 0.25,
+        fontSize: 10, color: C.silver,
+        fontFace: FONT_BODY, align: 'center', margin: 0
       });
     });
   });
 
-  slide.addShape(pres.shapes.LINE, {
-    x: 0.5, y: 5.25, w: 9, h: 0,
-    line: { color: C.lead, width: 0.5 }
-  });
-  slide.addText('AI in a Box  ·  18-Month Transformation Roadmap', {
-    x: 0.5, y: 5.3, w: 9, h: 0.22,
-    fontSize: 7.5, color: C.zinc, align: 'center', fontFace: 'Calibri', margin: 0
-  });
+  addFooter(slide, { left: 'AI in a Box · Confidential', right: 'Roadmap' });
 }
 
+// ═══════════════════════════════════════════════════════════
+//  INVESTMENT SLIDE — comparison-style
+// ═══════════════════════════════════════════════════════════
+function addInvestmentSlide(pres, { accentColor }) {
+  const slide = pres.addSlide();
+  slide.background = { color: C.ink };
+
+  addBrand(slide, accentColor);
+
+  slide.addText('INVESTMENT FRAMEWORK', {
+    x: 0.5, y: 1.4, w: 9, h: 0.25,
+    fontSize: 9, color: accentColor, charSpacing: 4,
+    fontFace: FONT_BODY, margin: 0
+  });
+  slide.addText('Where the budget goes.', {
+    x: 0.5, y: 1.75, w: 9, h: 0.6,
+    fontSize: 26, color: C.paper, italic: true,
+    fontFace: FONT_HEAD, margin: 0
+  });
+
+  // 3-column horizontal bar — illustrative budget split
+  const splits = [
+    { label: 'Foundation',   pct: '20%', detail: 'Data, infra, governance',           color: C.amber  },
+    { label: 'Acceleration', pct: '50%', detail: 'Use cases in production',           color: C.cyan   },
+    { label: 'Scale',        pct: '30%', detail: 'Enterprise rollout & ops',          color: C.jade   },
+  ];
+
+  // Horizontal stacked bar visual
+  let xOffset = 0.5;
+  const totalW = 9.0;
+  splits.forEach((s, i) => {
+    const w = (parseInt(s.pct) / 100) * totalW;
+    // Bar
+    slide.addShape(pres.shapes.RECTANGLE, {
+      x: xOffset, y: 2.9, w, h: 0.5,
+      fill: { color: s.color }, line: { type: 'none' }
+    });
+    // Percent inside bar
+    slide.addText(s.pct, {
+      x: xOffset, y: 2.9, w, h: 0.5,
+      fontSize: 14, color: C.ink, bold: true,
+      fontFace: FONT_HEAD, align: 'center', valign: 'middle', margin: 0
+    });
+    xOffset += w;
+  });
+
+  // Labels below bar
+  xOffset = 0.5;
+  splits.forEach((s, i) => {
+    const w = (parseInt(s.pct) / 100) * totalW;
+    slide.addText(s.label, {
+      x: xOffset, y: 3.5, w, h: 0.3,
+      fontSize: 12, color: s.color, bold: true,
+      fontFace: FONT_HEAD, align: 'center', margin: 0
+    });
+    slide.addText(s.detail, {
+      x: xOffset, y: 3.8, w, h: 0.3,
+      fontSize: 9, color: C.silver,
+      fontFace: FONT_BODY, align: 'center', margin: 0
+    });
+    xOffset += w;
+  });
+
+  // Indicative ranges callout
+  const ranges = [
+    ['CONSERVATIVE', '₹3–8 Cr',  'Sub-100Cr revenue · pilot-stage'],
+    ['BALANCED',     '₹8–25 Cr', 'Mid-market · 3-5 use cases live'],
+    ['AMBITIOUS',    '₹25 Cr+',  'Enterprise · platform-level AI'],
+  ];
+  ranges.forEach((r, i) => {
+    const bx = 0.5 + i * 3.1;
+    slide.addShape(pres.shapes.RECTANGLE, {
+      x: bx, y: 4.35, w: 2.9, h: 0.78,
+      fill: { color: C.carbon }, line: { color: C.lead, width: 0.5 }
+    });
+    slide.addText(r[0], {
+      x: bx + 0.15, y: 4.4, w: 2.6, h: 0.2,
+      fontSize: 7.5, color: accentColor, charSpacing: 3,
+      fontFace: FONT_BODY, margin: 0
+    });
+    slide.addText(r[1], {
+      x: bx + 0.15, y: 4.6, w: 2.6, h: 0.3,
+      fontSize: 14, color: C.paper, bold: true,
+      fontFace: FONT_HEAD, margin: 0
+    });
+    slide.addText(r[2], {
+      x: bx + 0.15, y: 4.88, w: 2.6, h: 0.22,
+      fontSize: 8.5, color: C.silver, italic: true,
+      fontFace: FONT_BODY, margin: 0
+    });
+  });
+
+  addFooter(slide, { left: 'AI in a Box · Confidential', right: 'Investment' });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CLOSING SLIDE — typographic, premium
+// ═══════════════════════════════════════════════════════════
 function addClosingSlide(pres, { company, accentColor }) {
   const slide = pres.addSlide();
   slide.background = { color: C.ink };
 
-  slide.addShape(pres.shapes.RECTANGLE, {
-    x: 0, y: 0, w: 0.18, h: 5.625,
-    fill: { color: accentColor }, line: { color: accentColor }
-  });
+  addBrand(slide, accentColor);
 
-  // Large decorative quote mark
+  // Decorative quote glyph — large, low-contrast
   slide.addText('"', {
-    x: 0.3, y: 0.5, w: 3, h: 2.5,
-    fontSize: 180, color: C.lead, fontFace: 'Georgia', margin: 0
+    x: 0.3, y: 0.8, w: 2.5, h: 2,
+    fontSize: 140, color: C.lead, fontFace: FONT_HEAD, margin: 0
   });
 
+  // Quote
   slide.addText('The window to lead is now.', {
-    x: 0.5, y: 1.4, w: 9, h: 1.2,
-    fontSize: 36, color: C.paper, fontFace: 'Georgia', italic: true,
-    margin: 0
-  });
-  slide.addText(`The AI transformation strategy for ${company} was prepared exclusively by AI in a Box, powered by Claude Opus with live web research.`, {
-    x: 0.5, y: 2.8, w: 8, h: 0.9,
-    fontSize: 13, color: C.silver, fontFace: 'Calibri',
-    margin: 0, shrinkText: true
+    x: 0.5, y: 1.85, w: 9, h: 1.0,
+    fontSize: 38, color: C.paper, italic: true,
+    fontFace: FONT_HEAD, margin: 0
   });
 
-  // CTA box
+  // Attribution
+  slide.addText('Strategy prepared exclusively for ' + trunc(company, 40) + ' by AI in a Box,', {
+    x: 0.5, y: 3.0, w: 9, h: 0.35,
+    fontSize: 13, color: C.silver,
+    fontFace: FONT_BODY, margin: 0
+  });
+  slide.addText('powered by Claude Opus 4 with live web research.', {
+    x: 0.5, y: 3.32, w: 9, h: 0.35,
+    fontSize: 13, color: C.silver,
+    fontFace: FONT_BODY, margin: 0
+  });
+
+  // CTA — subtle card, no stripe
   slide.addShape(pres.shapes.RECTANGLE, {
-    x: 0.5, y: 3.85, w: 9, h: 1.1,
-    fill: { color: C.carbon }, line: { color: accentColor }
-  });
-  slide.addText('Ready to take the next step?', {
-    x: 0.6, y: 3.95, w: 8.8, h: 0.35,
-    fontSize: 16, color: accentColor, bold: true, fontFace: 'Georgia', margin: 0
-  });
-  slide.addText('hello@aiinbox.com  ·  aiinbox.com  ·  Book your expert consultation today', {
-    x: 0.6, y: 4.3, w: 8.8, h: 0.5,
-    fontSize: 12, color: C.silver, fontFace: 'Calibri', margin: 0
+    x: 0.5, y: 3.95, w: 9, h: 1.15,
+    fill: { color: C.carbon }, line: { color: C.lead, width: 0.5 }
   });
 
-  slide.addShape(pres.shapes.LINE, {
-    x: 0.5, y: 5.25, w: 9, h: 0,
-    line: { color: C.lead, width: 0.5 }
+  slide.addText('Ready for the next step?', {
+    x: 0.7, y: 4.05, w: 8.6, h: 0.35,
+    fontSize: 15, color: accentColor, bold: true,
+    fontFace: FONT_HEAD, margin: 0
   });
-  slide.addText('© 2026 AI in a Box  ·  Confidential  ·  Not for redistribution', {
-    x: 0.5, y: 5.3, w: 9, h: 0.22,
-    fontSize: 7.5, color: C.zinc, align: 'center', fontFace: 'Calibri', margin: 0
+  slide.addText('Book a 30-minute discovery call.  ·  hello@aiinbox.com  ·  aiinbox.com', {
+    x: 0.7, y: 4.4, w: 8.6, h: 0.3,
+    fontSize: 11, color: C.silver,
+    fontFace: FONT_BODY, margin: 0
+  });
+  slide.addText('AI Design Sprint · Custom Strategy · C-Suite Packages', {
+    x: 0.7, y: 4.7, w: 8.6, h: 0.3,
+    fontSize: 9, color: C.zinc, italic: true,
+    fontFace: FONT_BODY, margin: 0
+  });
+
+  addFooter(slide, {
+    left: '© ' + new Date().getFullYear() + ' AI in a Box',
+    right: 'Confidential · Not for redistribution'
   });
 }
 
-// ── Main PPTX builder ─────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+//  MAIN BUILDER
+// ═══════════════════════════════════════════════════════════
 async function buildPPTX({ company, industry, type, strategyText }) {
   const pres = new PptxGenJS();
   pres.layout = 'LAYOUT_16x9';
   pres.author = 'AI in a Box';
-  pres.title = `AI Strategy — ${company}`;
-  pres.subject = `${type.charAt(0).toUpperCase() + type.slice(1)} AI Strategy`;
+  pres.title = 'AI Strategy — ' + company;
+  pres.subject = (type.charAt(0).toUpperCase() + type.slice(1)) + ' AI Strategy';
+  pres.company = 'AI in a Box';
 
   const accentColor = TYPE_COLOR[type] || C.amber;
-  const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+  const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
   const sections = parseSections(strategyText);
 
-  // Slide 1 — Cover
+  // 1. Cover
   addCoverSlide(pres, { company, industry, type, date, accentColor });
 
-  // Slide 2 — Market stats
-  addStatSlide(pres, { company, industry, accentColor });
+  // 2. Market stats
+  addStatSlide(pres, { accentColor });
 
-  // Slide 3 — Agenda
+  // 3. Agenda
   addAgendaSlide(pres, { sections, accentColor });
 
-  // Slides 4..N — One per section
+  // 4..N. Sections — vary layout to avoid AI tell
   sections.forEach((sec, i) => {
+    let variant = 'twocol';
+    if (i === 0 && sec.bullets.length >= 1) variant = 'callout';
+    else if (sec.bullets.length <= 4) variant = 'single';
+    else variant = 'twocol';
     addSectionSlide(pres, {
       index: i + 1,
       heading: sec.heading,
       bullets: sec.bullets,
       accentColor,
-      totalSections: sections.length
+      totalSections: sections.length,
+      variant,
     });
   });
 
-  // Roadmap slide
+  // Roadmap
   addRoadmapSlide(pres, { accentColor });
 
-  // Closing slide
+  // Investment
+  addInvestmentSlide(pres, { accentColor });
+
+  // Closing
   addClosingSlide(pres, { company, accentColor });
 
   return pres;
@@ -530,25 +676,24 @@ router.post('/generate', async (req, res) => {
       strategyText: strategy_text
     });
 
-    // Get base64 buffer
     const buffer = await pres.write({ outputType: 'nodebuffer' });
     const base64 = buffer.toString('base64');
 
-    // Track PDF download in Supabase
-    if (strategy_id) {
+    // Track PPTX download in Supabase
+    if (strategy_id && supabaseAdmin) {
       supabaseAdmin.from('pdf_downloads').insert({
         strategy_id,
         downloaded_at: new Date().toISOString()
-      }).then(() => {}).catch(console.error);
+      }).then(() => {}).catch(() => {});
     }
 
-    const filename = `AI-Strategy-${company_name.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}.pptx`;
+    const filename = 'AI-Strategy-' + company_name.replace(/[^a-zA-Z0-9]/g, '-') + '-' + Date.now() + '.pptx';
 
     res.json({
       success: true,
       filename,
       base64,
-      slides: Math.ceil(strategy_text.split(/\n(?=[1-9]\.|#{1,3}\s)/).length) + 5
+      slides: parseSections(strategy_text).length + 6
     });
   } catch (err) {
     console.error('PPTX generation error:', err);
